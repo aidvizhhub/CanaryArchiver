@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Legacy CLI wrapper: `python3 guard.py --fp ...` == `canaryarchiver issue --fp ...`.
-
-All original flags keep working: --fp --auto --user --id --force --dry-run
---rebuild --leak --who --rotate --from --store --root.
-"""
+"""Entry point: `python3 cli.py ...` or `canaryarchiver ...` (after install)."""
 import sys
 from pathlib import Path
 

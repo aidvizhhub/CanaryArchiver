@@ -2,6 +2,7 @@
 log.md
 dist/
 archive/
+version.txt
 *.zip
 
 # Локальный конфиг с паролями (шаблон — config.example.py)

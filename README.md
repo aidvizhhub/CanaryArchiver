@@ -1,98 +1,128 @@
 # CanaryArchiver
 
-Инструмент для маркировки архивов уникальными идентификаторами с целью
-предотвращения несанкционированного распространения. Каждая выданная
-копия воркспейса получает невидимую фразу-канарейку — если копия утечёт,
-по фразе можно точно установить, с чьей копии она ушла.
+Universal engine for **fingerprinting + watermarking + controlled archival**
+of any project or workspace. Every distributed copy gets an invisible
+canary phrase — if a copy leaks, one command tells you whose copy it was.
 
-## Зачем
+The engine is **workspace-agnostic**: no hardcoded file names, no required
+project layout, no built-in ideology. Everything project-specific is
+configuration (`config.py` / env / CLI flags).
 
-Вы раздаёте копии своего воркспейса/документации получателям. Если
-копия окажется в открытом доступе — вы хотите знать, кто её слил.
-Каждая копия помечается уникальной фразой БЕЗ видимых маркеров
-(canary trap): получатель с одной копией не подозревает, что фраза —
-метка. Утекла копия — одна команда находит владельца по реестру.
+## Architecture
 
-## Возможности
+```
+canaryarchiver/
+├── engine/            # universal logic (no project assumptions)
+│   ├── fingerprint.py # canary embed/verify/strip (2 positions, no marker)
+│   ├── watermark.py   # multi-position ownership marks (comment-syntax adapters)
+│   ├── scanner.py     # target resolution (files/globs) + text-file iteration
+│   ├── archiver.py    # archive backends: system zip | python zipfile
+│   ├── registry.py    # issuance ledger, version rotation, phrase lookup
+│   └── leak.py        # leak scanner (any text suffix, exact-line matching)
+├── adapters/
+│   └── workspace.py   # project adapter: root, targets, version, artifacts
+├── cli/
+│   └── main.py        # issue / leak / rebuild / rotate / store / who / watermark
+└── config/
+    └── defaults.py    # engine defaults + config.py/env loading
+```
 
-| Компонент | Что делает |
-|---|---|
-| `guard.py` | вшивает фразу-канарейку (2 позиции без маркера), собирает ZIP с паролем, ведёт реестр выдач `log.md`, сохраняет папку-улику в `dist/`, находит утечку (`--leak`), перевыдаёт из готового билда (`--rebuild`) |
-| `archive.py` | ротация по версиям: выдачи прошлой версии — в `archive/<версия>/` (move-only, реестр полон всегда) |
-| `add_watermarks.py` | водяные знаки принадлежности: до 3 позиций на файл, вариации, безопасная вставка (проверка синтаксиса) |
-| `skills/build-engine/` | скилл-инструкция для агентов: workflow выдачи, флаги, грабли |
+Engine vs policy is separated: the engine knows how to fingerprint,
+watermark, archive, rotate and scan; **your** project is described in
+`config.py` (targets, excludes, names, policy texts).
 
-## Как это работает
-
-1. Вы говорите: «выдать копию для @vasya».
-2. `guard.py` вшивает в `CLAUDE.md` уникальную фразу (без маркера,
-   позиции детерминированы: 60-я строка + хеш фразы), собирает
-   ZIP-архив с паролем, сохраняет улику (архив + info.md с метаданными)
-   в `dist/` и записывает строку в реестр `log.md`.
-3. После сборки исходный файл восстанавливается байт-в-байт
-   (сверка sha256).
-4. Копия утекла — запускаете `guard.py --leak утёкший.zip`, скрипт
-   находит фразу и называет получателя.
-
-Канарейка уникальна навсегда: повтор фразы отклоняется, проверка
-идёт по всем реестрам (текущему и архивным).
-
-## Установка
+## Install
 
 ```bash
 git clone https://github.com/aidvizhhub/CanaryArchiver.git
 cd CanaryArchiver
-cp config.example.py config.py   # и заполни GUARD_ZIP_PASSWORD
+pip install -e .            # optional: adds `canaryarchiver` command
+cp config.example.py config.py   # and set GUARD_ZIP_PASSWORD
 ```
 
-## Использование
+No install needed to try: `python3 cli.py ...` works from the repo dir.
+`guard.py` and `add_watermarks.py` remain as legacy-compatible wrappers.
+
+## Usage
 
 ```bash
-export GUARD_ZIP_PASSWORD=...     # или через config.py
+export GUARD_ZIP_PASSWORD=...        # or via config.py
 
-# пометить копию для конкретного получателя и собрать архив
-python3 guard.py --fp "копия для Васи" --user @vasya --id 123456789
-python3 guard.py --auto            # авто-серийник copy-YYYYMMDDHHMMSS
+# 1) mark a copy for a recipient and build the archive.
+#    Targets: any files/globs — no CLAUDE.md/make_archive.sh required.
+canaryarchiver issue --root ./my-project \
+    --targets "CLAUDE.md,AGENTS.md,README.md,*.md" \
+    --fp "фраза для @vasya" --user @vasya --id 123456789
 
-# показать хранилище выданных копий
-python3 guard.py --store
+# 2) automatic phrase, dry-run first
+canaryarchiver issue --root ./my-project --targets "*.md" --auto --dry-run
 
-# нашёл утечку — чья копия?
-python3 guard.py --leak утёкший.zip
+# 3) a copy leaked — whose?
+canaryarchiver leak ./leaked.zip
 
-# перевыдача из готового билда: старая метка снимается, фраза новая
-python3 guard.py --rebuild dist/<папка-выдачи> --fp "новая фраза" --user @ник
+# 4) re-issue from an existing build (old marks stripped, new phrase embedded)
+canaryarchiver rebuild dist/<copy-folder> --fp "новая фраза" --user @ник
 
-# смена версии: эпоху прошлой версии — в архив, начать свежую
-python3 guard.py --rotate
+# 5) version epoch rotation (registry + dist → archive/<version>/)
+canaryarchiver rotate --root ./my-project [--from 2.4] [--dry-run]
 
-# водяные знаки
-python3 add_watermarks.py --stats
+# 6) show storage / phrase lookup
+canaryarchiver store
+canaryarchiver who "фраза"
+
+# 7) watermarking (multi-position marks, comment syntax per file type)
+canaryarchiver watermark --root ./my-project [--check|--stats]
 ```
 
-Корень воркспейса задаётся через `$WORKSPACE_ROOT` или `--root`
-(нужны `CLAUDE.md` и `make_archive.sh` рядом).
+## What is configurable (all with sane defaults)
 
-## Конфигурация
+| Concern | Default | Override |
+|---|---|---|
+| Fingerprint targets | `CLAUDE.md, AGENTS.md, README.md` (first existing) | `--targets`, `targets` in config.py, globs allowed |
+| Artifact name | `workspace-{version}.zip` | `archive_name` / `CANARYARCHIVER_ARCHIVE_NAME` |
+| Inner dir in zip | `workspace` | `archive_inner_dir` |
+| Version source | `file` (`VERSION`) | `git` tags / `--version` explicit / config |
+| Archive backend | `auto` (system `zip` if present) | `CANARYARCHIVER_BACKEND=python` |
+| Scan suffixes | `.md .txt .py .sh .js .json .yaml .toml ...` | `text_suffixes` in config.py |
+| Excluded dirs/files | `.git, __pycache__, node_modules, venv, dist, LICENSE...` | `exclude_dirs/names/parts` in config.py |
+| Watermark text | **empty** (neutral engine) | `WATERMARK_NOTICE`, `WATERMARK_LINKS` in config.py |
+| State location | package dir (backward compat) | `--state-dir`, `CANARYARCHIVER_STATE_DIR` |
 
-Все секреты — вне репозитория:
+Archive exclusions (what never goes into the zip): `.git`, caches,
+`dist/`, `archive/`, `log.md`, `version.txt`, `config.py`, `*.zip`, `*.bak`
+— override via `archive_excludes` in config.py.
 
-- `GUARD_ZIP_PASSWORD` — пароль ZIP-архивов (env или `config.py`);
-- `WATERMARK_NOTICE` / `WATERMARK_LINKS` — тексты водяных знаков
-  (опционально, в `config.py`).
+## Security model
 
-В git попадает только шаблон `config.example.py` — сам `config.py`
-исключён `.gitignore`-ом.
+- Canary phrase: embedded **without any marker** at two deterministic
+  positions (line 60 + position derived from the phrase hash). A recipient
+  with one copy cannot tell it is a mark.
+- Registry (`log.md`): full chain of custody — phrase, user, id, date,
+  artifact, sha256. Phrases are unique forever; duplicates rejected.
+- Leak scan: exact **full-line** matching (no substring false positives
+  when a new phrase contains an old one).
+- Watermarks: up to 3 positions per file, syntax-verified insertion
+  (ast / `bash -n` / `node --check`), safe defaults.
+- ZipCrypto (system backend) protects against casual curious eyes, not
+  cryptanalysis — README-level honesty: archive ≠ encryption. The python
+  backend cannot write encrypted zips (stdlib limitation) and says so.
 
-## Безопасность
+## Legacy interface
 
-- Пароли и реестры выдач (`log.md`, `dist/`, `archive/`) — в `.gitignore`;
-- Канарейка неотличима от контента — получатель не знает о метке;
-- Водяные знаки — в 3 позициях: срезать одну команду нельзя;
-- ZipCrypto — защита от случайного любопытного, не от криптоанализа.
+The original flags still work through the wrappers:
 
-## Требования
+```bash
+python3 guard.py --fp "фраза" --user @vasya --id 123   # issue
+python3 guard.py --auto --dry-run
+python3 guard.py --leak утёкший.zip
+python3 guard.py --rebuild dist/<папка> --fp "новая" --user @ник
+python3 guard.py --rotate --from 2.4
+python3 guard.py --store
+python3 guard.py --who "фраза"
+python3 add_watermarks.py --check --root ./project
+```
+
+## Requirements
 
 - Python 3.9+
-- `zip` (для сборки архивов)
-- `bash` (для сборки через make_archive.sh)
+- `zip` command (optional; system backend, enables encryption)
