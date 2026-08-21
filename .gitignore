@@ -1,0 +1,19 @@
+# Секреты и реестры выдач — никогда не коммитить
+log.md
+dist/
+archive/
+*.zip
+
+# Локальный конфиг с паролями (шаблон — config.example.py)
+config.py
+.env
+
+# Python
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+
+# Системное
+.DS_Store
+Thumbs.db
