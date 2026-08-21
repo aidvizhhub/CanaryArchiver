@@ -40,7 +40,7 @@
 ## Установка
 
 ```bash
-git clone https://github.com/kuquuelernnitratos-art/CanaryArchiver.git
+git clone https://github.com/aidvizhhub/CanaryArchiver.git
 cd CanaryArchiver
 cp config.example.py config.py   # и заполни GUARD_ZIP_PASSWORD
 ```
